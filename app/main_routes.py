@@ -113,12 +113,16 @@ def index():
     ls_d,le_d=calculate_date_range(period_arg)
     if ls_d: list_q=list_q.filter(Coaching.coaching_date>=ls_d)
     if le_d: list_q=list_q.filter(Coaching.coaching_date<=le_d)
-    if current_user.role==ROLE_TEAMLEITER:
-        if not current_user.team_id_if_leader: flash("Kein Team zugewiesen.","warning"); list_q=list_q.filter(sqlalchemy.sql.false())
+    if current_user.role == ROLE_TEAMLEITER:
+        # Check if they lead ANY teams
+        led_team_ids = [t.id for t in current_user.led_teams.all()]
+        if not led_team_ids:
+            flash("Kein Team zugewiesen.", "warning")
+            list_q = list_q.filter(sqlalchemy.sql.false())
         else:
-            tm_ids=[m.id for m in TeamMember.query.filter_by(team_id=current_user.team_id_if_leader).all()]
-            if not tm_ids: list_q=list_q.filter(Coaching.coach_id==current_user.id) 
-            else: list_q=list_q.filter(or_(Coaching.team_member_id.in_(tm_ids),Coaching.coach_id==current_user.id))
+            # Show coachings for all members of all teams they lead
+            tm_ids = [m.id for m in TeamMember.query.filter(TeamMember.team_id.in_(led_team_ids)).all()]
+            list_q = list_q.filter(or_(Coaching.team_member_id.in_(tm_ids), Coaching.coach_id == current_user.id))
     elif team_arg and team_arg.isdigit(): list_q=list_q.filter(TeamMember.team_id==int(team_arg))
     if search_arg: list_q=list_q.filter(or_(TeamMember.name.ilike(f"%{search_arg}%"),User.username.ilike(f"%{search_arg}%"),Coaching.coaching_subject.ilike(f"%{search_arg}%")))
     total_filtered_list=list_q.count()
