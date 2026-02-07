@@ -3,7 +3,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from app import db, login_manager 
 from datetime import datetime, timezone
 
-# ASSOCIATION TABLE for Multiple Team Leaders
+# ASSOCIATION TABLE: Links many users to many teams
 team_leaders = db.Table('team_leaders',
     db.Column('user_id', db.Integer, db.ForeignKey('users.id', name='fk_team_leaders_user_id'), primary_key=True),
     db.Column('team_id', db.Integer, db.ForeignKey('teams.id', name='fk_team_leaders_team_id'), primary_key=True)
@@ -17,7 +17,7 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(256), nullable=True)
     role = db.Column(db.String(20), nullable=False, default='Teammitglied')
     
-    # NEW: Relationship for multiple teams this user leads
+    # Many-to-Many Relationship
     led_teams = db.relationship('Team', secondary=team_leaders, backref=db.backref('leaders', lazy='dynamic'), lazy='dynamic')
     
     coachings_done = db.relationship('Coaching', foreign_keys='Coaching.coach_id', backref='coach', lazy='dynamic')
@@ -28,9 +28,6 @@ class User(UserMixin, db.Model):
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
-    def __repr__(self):
-        return f'<User {self.username}>'
-
 @login_manager.user_loader
 def load_user(id):
     return User.query.get(int(id))
@@ -40,9 +37,6 @@ class Team(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True, nullable=False)
     members = db.relationship('TeamMember', backref='team', lazy='dynamic', cascade="all, delete-orphan")
-
-    def __repr__(self):
-        return f'<Team {self.name}>'
 
 class TeamMember(db.Model):
     __tablename__ = 'team_members'
@@ -57,10 +51,10 @@ class Coaching(db.Model):
     team_member_id = db.Column(db.Integer, db.ForeignKey('team_members.id', name='fk_coaching_team_member_id'), nullable=False)
     coach_id = db.Column(db.Integer, db.ForeignKey('users.id', name='fk_coaching_coach_id'), nullable=False)
     coaching_date = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-    coaching_style = db.Column(db.String(50), nullable=True)
-    tcap_id = db.Column(db.String(50), nullable=True)
-    coaching_subject = db.Column(db.String(50), nullable=True) 
-    coach_notes = db.Column(db.Text, nullable=True)
+    coaching_style = db.Column(db.String(50))
+    tcap_id = db.Column(db.String(50))
+    coaching_subject = db.Column(db.String(50)) 
+    coach_notes = db.Column(db.Text)
     leitfaden_begruessung = db.Column(db.String(10), default="k.A.")
     leitfaden_legitimation = db.Column(db.String(10), default="k.A.")
     leitfaden_pka = db.Column(db.String(10), default="k.A.")
