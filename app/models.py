@@ -1,11 +1,9 @@
-print("<<<< START models.py (MANY-TO-MANY VERSION) GELADEN >>>>")
-
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from app import db, login_manager 
 from datetime import datetime, timezone
 
-# ASSOCIATION TABLE: This links many users to many teams as leaders
+# ASSOCIATION TABLE for Multiple Team Leaders
 team_leaders = db.Table('team_leaders',
     db.Column('user_id', db.Integer, db.ForeignKey('users.id', name='fk_team_leaders_user_id'), primary_key=True),
     db.Column('team_id', db.Integer, db.ForeignKey('teams.id', name='fk_team_leaders_team_id'), primary_key=True)
@@ -19,7 +17,7 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(256), nullable=True)
     role = db.Column(db.String(20), nullable=False, default='Teammitglied')
     
-    # NEW: Relationship to find which teams this user leads
+    # NEW: Relationship for multiple teams this user leads
     led_teams = db.relationship('Team', secondary=team_leaders, backref=db.backref('leaders', lazy='dynamic'), lazy='dynamic')
     
     coachings_done = db.relationship('Coaching', foreign_keys='Coaching.coach_id', backref='coach', lazy='dynamic')
@@ -41,10 +39,8 @@ class Team(db.Model):
     __tablename__ = 'teams'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True, nullable=False)
-    
-    # The 'leaders' relationship is automatically created by the backref in the User class
-    
-    members = db.relationship('TeamMember', backref='team', lazy='dynamic')
+    members = db.relationship('TeamMember', backref='team', lazy='dynamic', cascade="all, delete-orphan")
+
     def __repr__(self):
         return f'<Team {self.name}>'
 
@@ -53,9 +49,7 @@ class TeamMember(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     team_id = db.Column(db.Integer, db.ForeignKey('teams.id', name='fk_teammember_team_id'), nullable=False)
-    coachings_received = db.relationship('Coaching', backref='team_member_coached', lazy='dynamic')
-    def __repr__(self):
-        return f'<TeamMember {self.name} (Team ID: {self.team_id})>'
+    coachings_received = db.relationship('Coaching', backref='team_member_coached', lazy='dynamic', cascade="all, delete-orphan")
 
 class Coaching(db.Model):
     __tablename__ = 'coachings'
@@ -67,61 +61,13 @@ class Coaching(db.Model):
     tcap_id = db.Column(db.String(50), nullable=True)
     coaching_subject = db.Column(db.String(50), nullable=True) 
     coach_notes = db.Column(db.Text, nullable=True)
-    
-    leitfaden_begruessung = db.Column(db.String(10), default="k.A.", nullable=True)
-    leitfaden_legitimation = db.Column(db.String(10), default="k.A.", nullable=True)
-    leitfaden_pka = db.Column(db.String(10), default="k.A.", nullable=True)
-    leitfaden_kek = db.Column(db.String(10), default="k.A.", nullable=True)
-    leitfaden_angebot = db.Column(db.String(10), default="k.A.", nullable=True)
-    leitfaden_zusammenfassung = db.Column(db.String(10), default="k.A.", nullable=True)
-    leitfaden_kzb = db.Column(db.String(10), default="k.A.", nullable=True)
-    
-    performance_mark = db.Column(db.Integer, nullable=True) 
-    time_spent = db.Column(db.Integer, nullable=True) 
-    project_leader_notes = db.Column(db.Text, nullable=True)
-        
-    @property
-    def leitfaden_fields_list(self):
-        return [
-            ("Begrüßung", self.leitfaden_begruessung),
-            ("Legitimation", self.leitfaden_legitimation),
-            ("PKA", self.leitfaden_pka),
-            ("KEK", self.leitfaden_kek),
-            ("Angebot", self.leitfaden_angebot),
-            ("Zusammenfassung", self.leitfaden_zusammenfassung),
-            ("KZB", self.leitfaden_kzb)
-        ]
-
-    @property
-    def leitfaden_counts(self):
-        ja_count = 0
-        nein_count = 0
-        ka_count = 0
-        for _, value in self.leitfaden_fields_list:
-            if value == "Ja":
-                ja_count += 1
-            elif value == "Nein":
-                nein_count += 1
-            elif value == "k.A.":
-                ka_count += 1
-        return {'ja': ja_count, 'nein': nein_count, 'ka': ka_count}
-
-    @property
-    def leitfaden_erfuellung_display(self):
-        counts = self.leitfaden_counts
-        ja, nein, ka = counts['ja'], counts['nein'], counts['ka']
-        total_relevant = ja + nein
-        if total_relevant == 0:
-            return f"N/A ({ka} k.A.)" if ka > 0 else "N/A"
-        return f"{ja}/{total_relevant} ({ka} k.A.)"
-
-    @property
-    def overall_score(self):
-        if self.performance_mark is None:
-            return 0.0 
-        return round((float(self.performance_mark) / 10.0) * 100.0, 2)
-
-    def __repr__(self):
-        return f'<Coaching {self.id}>'
-
-print("<<<< ENDE models.py (MANY-TO-MANY VERSION) GELADEN >>>>")
+    leitfaden_begruessung = db.Column(db.String(10), default="k.A.")
+    leitfaden_legitimation = db.Column(db.String(10), default="k.A.")
+    leitfaden_pka = db.Column(db.String(10), default="k.A.")
+    leitfaden_kek = db.Column(db.String(10), default="k.A.")
+    leitfaden_angebot = db.Column(db.String(10), default="k.A.")
+    leitfaden_zusammenfassung = db.Column(db.String(10), default="k.A.")
+    leitfaden_kzb = db.Column(db.String(10), default="k.A.")
+    performance_mark = db.Column(db.Integer)
+    time_spent = db.Column(db.Integer)
+    project_leader_notes = db.Column(db.Text)
