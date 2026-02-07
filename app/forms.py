@@ -1,9 +1,8 @@
 # app/forms.py
 from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, BooleanField, SubmitField, SelectField, IntegerField, TextAreaField, HiddenField
+from wtforms import StringField, PasswordField, BooleanField, SubmitField, SelectField, SelectMultipleField, IntegerField, TextAreaField
 from wtforms.validators import DataRequired, EqualTo, ValidationError, Length, NumberRange 
-# <<< GEÄNDERT >>> Importiere die ARCHIV-Konstante
-from app.models import User, Team, TeamMember
+from app.models import User, Team
 from app.utils import ARCHIV_TEAM_NAME
 
 class LoginForm(FlaskForm):
@@ -54,27 +53,23 @@ class RegistrationForm(FlaskForm):
 
 class TeamForm(FlaskForm):
     name = StringField('Team Name', validators=[DataRequired(), Length(min=3, max=100)])
-    team_leader_id = SelectField('Teamleiter', coerce=int, option_widget=None, choices=[])
-    submit = SubmitField('Team erstellen/aktualisieren')
+    # Changed to SelectMultipleField
+    team_leader_ids = SelectMultipleField('Teamleiter', coerce=int)
+    submit = SubmitField('Speichern')
 
-    def __init__(self, original_name=None, *args, **kwargs): # original_name für Validierung hinzugefügt
+    def __init__(self, original_name=None, *args, **kwargs):
         super(TeamForm, self).__init__(*args, **kwargs)
         self.original_name = original_name
-        possible_leaders = User.query.filter(User.role.in_(['Teamleiter', 'Admin', ''])).order_by(User.username).all()
-        self.team_leader_id.choices = [(u.id, u.username) for u in possible_leaders]
-        self.team_leader_id.choices.insert(0, (0, 'Kein Teamleiter ausgewählt'))
-    
-    # <<< NEU >>> Validierung, um Konflikte mit ARCHIV zu vermeiden
+        possible_leaders = User.query.filter(User.role.in_(['Teamleiter', 'Admin', 'Projektleiter', 'Abteilungsleiter'])).order_by(User.username).all()
+        self.team_leader_ids.choices = [(u.id, u.username) for u in possible_leaders]
+
     def validate_name(self, name_field):
-        # Wenn der Name nicht geändert wurde, überspringe die Prüfung
         if self.original_name and self.original_name.strip().upper() == name_field.data.strip().upper():
             return
-        # Prüfe auf Duplikate
         if Team.query.filter(Team.name.ilike(name_field.data)).first():
             raise ValidationError('Ein Team mit diesem Namen existiert bereits.')
-        # Prüfe auf reservierten Namen
         if name_field.data.strip().upper() == ARCHIV_TEAM_NAME:
-            raise ValidationError(f'Der Teamname "{ARCHIV_TEAM_NAME}" ist für das System reserviert.')
+            raise ValidationError(f'Der Name "{ARCHIV_TEAM_NAME}" ist reserviert.')
 
 
 class TeamMemberForm(FlaskForm):
