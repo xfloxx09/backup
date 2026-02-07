@@ -21,16 +21,16 @@
                         {% endif %}
                     </div>
 
-                    <div class="form-group">
-                        {{ form.team_leader_id.label(class="form-control-label") }}
-                        {{ form.team_leader_id(class="form-control custom-select " + ("is-invalid" if form.team_leader_id.errors else "")) }}
-                        <small class="form-text text-muted">Optional. Wähle einen Benutzer mit der Rolle 'Teamleiter'.</small>
-                        {% if form.team_leader_id.errors %}
-                            <div class="invalid-feedback">
-                                {% for error in form.team_leader_id.errors %}<span>{{ error }}</span>{% endfor %}
-                            </div>
-                        {% endif %}
-                    </div>
+                   <div class="form-group">
+    {{ form.team_leader_ids.label(class="form-control-label") }}
+    {{ form.team_leader_ids(class="form-control " + ("is-invalid" if form.team_leader_ids.errors else ""), size=5) }}
+    <small class="form-text text-muted">Halte Strg/Cmd gedrückt für Mehrfachauswahl.</small>
+    {% if form.team_leader_ids.errors %}
+        <div class="invalid-feedback">
+            {% for error in form.team_leader_ids.errors %}<span>{{ error }}</span>{% endfor %}
+        </div>
+    {% endif %}
+</div>
 
                     <div class="form-group">
                         {{ form.submit(class="btn telekom-button") }}
