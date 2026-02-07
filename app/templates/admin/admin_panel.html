@@ -38,7 +38,12 @@
      <tr>
         <td>{{ team.id }}</td>
         <td>{{ team.name }}</td>
-        <td>{{ team.team_leader.username if team.team_leader else 'Kein Leiter' }}</td>
+        <td>
+    {% for leader in team.leaders %}
+        <span class="badge badge-secondary">{{ leader.username }}</span>
+    {% endfor %}
+    {% if not team.leaders.all() %}-{% endif %}
+</td>
         <td>{{ team.members.count() }}</td>
         <td>
             <!-- <<< KORREKTUR: 'team_id_param' zu 'team_id' geändert >>> -->
