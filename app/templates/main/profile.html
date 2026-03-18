@@ -1,53 +1,79 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header telekom-bg-magenta text-white">
-                <h2>{{ title }}</h2>
+<div class="container">
+    <h2>Mein Profil</h2>
+    
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header telekom-bg-magenta text-white">
+                    <h5 class="mb-0">Persönliche Daten</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table">
+                        <tr>
+                            <th>Username (Login):</th>
+                            <td><code>{{ current_user.username }}</code></td>
+                        </tr>
+                        <tr>
+                            <th>Vorname:</th>
+                            <td>{{ current_user.first_name or '-' }}</td>
+                        </tr>
+                        <tr>
+                            <th>Nachname:</th>
+                            <td>{{ current_user.last_name or '-' }}</td>
+                        </tr>
+                        <tr>
+                            <th>Angezeigter Name:</th>
+                            <td><strong>{{ current_user.full_name }}</strong></td>
+                        </tr>
+                        <tr>
+                            <th>Email:</th>
+                            <td>{{ current_user.email }}</td>
+                        </tr>
+                        <tr>
+                            <th>Rolle:</th>
+                            <td>{{ current_user.role }}</td>
+                        </tr>
+                        <tr>
+                            <th>Projekt:</th>
+                            <td>{{ current_user.project.name if current_user.project else '-' }}</td>
+                        </tr>
+                    </table>
+                </div>
             </div>
-            <div class="card-body">
-                <p>Angemeldet als: <strong>{{ current_user.username }}</strong> ({{ current_user.role }})</p>
-                <hr>
-                <form method="POST" action="{{ url_for('main.profile') }}" novalidate>
-                    {{ form.hidden_tag() }}
-
-                    <div class="form-group">
-                        {{ form.old_password.label(class="form-control-label") }}
-                        {{ form.old_password(class="form-control " + ("is-invalid" if form.old_password.errors else "")) }}
-                        {% if form.old_password.errors %}
-                            <div class="invalid-feedback">
-                                {% for error in form.old_password.errors %}<span>{{ error }}</span>{% endfor %}
-                            </div>
-                        {% endif %}
-                    </div>
-
-                    <div class="form-group">
-                        {{ form.new_password.label(class="form-control-label") }}
-                        {{ form.new_password(class="form-control " + ("is-invalid" if form.new_password.errors else "")) }}
-                        {% if form.new_password.errors %}
-                            <div class="invalid-feedback">
-                                {% for error in form.new_password.errors %}<span>{{ error }}</span>{% endfor %}
-                            </div>
-                        {% endif %}
-                    </div>
-
-                    <div class="form-group">
-                        {{ form.confirm_password.label(class="form-control-label") }}
-                        {{ form.confirm_password(class="form-control " + ("is-invalid" if form.confirm_password.errors else "")) }}
-                        {% if form.confirm_password.errors %}
-                            <div class="invalid-feedback">
-                                {% for error in form.confirm_password.errors %}<span>{{ error }}</span>{% endfor %}
-                            </div>
-                        {% endif %}
-                    </div>
-
-                    <div class="form-group">
-                        {{ form.submit(class="btn telekom-button") }}
-                        <a href="{{ url_for('main.index') }}" class="btn btn-secondary">Abbrechen</a>
-                    </div>
-                </form>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header telekom-bg-magenta text-white">
+                    <h5 class="mb-0">Passwort ändern</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('main.profile') }}">
+                        {{ form.hidden_tag() }}
+                        
+                        <div class="form-group">
+                            {{ form.old_password.label(class="form-control-label") }}
+                            {{ form.old_password(class="form-control") }}
+                        </div>
+                        
+                        <div class="form-group">
+                            {{ form.new_password.label(class="form-control-label") }}
+                            {{ form.new_password(class="form-control") }}
+                        </div>
+                        
+                        <div class="form-group">
+                            {{ form.confirm_password.label(class="form-control-label") }}
+                            {{ form.confirm_password(class="form-control") }}
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-key"></i> Passwort ändern
+                        </button>
+                    </form>
+                </div>
             </div>
         </div>
     </div>
