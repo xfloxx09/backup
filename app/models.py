@@ -1,203 +1,162 @@
-# app/models.py
-print("<<<< START models.py (ARCHIV-HISTORIE) GELADEN >>>>")
-
 from flask_login import UserMixin
-from werkzeug.security import generate_password_hash, check_password_hash
-from app import db, login_manager
-from datetime import datetime, timezone
-
-team_leaders = db.Table('team_leaders',
-    db.Column('team_id', db.Integer, db.ForeignKey('teams.id', ondelete='CASCADE'), primary_key=True),
-    db.Column('user_id', db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
-)
-
-workshop_participants = db.Table('workshop_participants',
-    db.Column('workshop_id', db.Integer, db.ForeignKey('workshops.id', ondelete='CASCADE'), primary_key=True),
-    db.Column('team_member_id', db.Integer, db.ForeignKey('team_members.id', ondelete='CASCADE'), primary_key=True),
-    db.Column('individual_rating', db.Integer, nullable=True),
-    # NEU: Ursprüngliches Team des Teilnehmers (für historische Zuordnung)
-    db.Column('original_team_id', db.Integer, db.ForeignKey('teams.id'), nullable=True)
-)
-
-class Project(db.Model):
-    __tablename__ = 'projects'
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), unique=True, nullable=False)
-    description = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-
-    users = db.relationship('User', backref='project_ref', lazy='dynamic')
-    teams = db.relationship('Team', backref='project_ref', lazy='dynamic')
-    workshops = db.relationship('Workshop', backref='project_ref', lazy='dynamic')
-    coachings = db.relationship('Coaching', backref='project_ref', lazy='dynamic')
-
-    def __repr__(self):
-        return f'<Project {self.name}>'
+from app import db
+from datetime import datetime
 
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
+    
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(64), index=True, unique=True, nullable=False)
-    email = db.Column(db.String(120), index=True, unique=False, nullable=True)
-    password_hash = db.Column(db.String(256), nullable=True)
-    role = db.Column(db.String(20), nullable=False, default='Teammitglied')
-    team_id_if_leader = db.Column(db.Integer, db.ForeignKey('teams.id', name='fk_user_team_id_if_leader'), nullable=True)
-    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False)
-
-    coachings_done = db.relationship('Coaching', foreign_keys='Coaching.coach_id', backref='coach', lazy='dynamic')
-    teams_led = db.relationship('Team', secondary=team_leaders, back_populates='leaders', lazy='dynamic')
-    workshops_given = db.relationship('Workshop', backref='coach', lazy='dynamic')
-
+    username = db.Column(db.String(64), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    first_name = db.Column(db.String(100))
+    last_name = db.Column(db.String(100))
+    password_hash = db.Column(db.String(256))
+    role = db.Column(db.String(50), nullable=False, default='Mitarbeiter')
+    team_id_if_leader = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False, default=1)
+    
+    # Beziehungen
+    teams_led = db.relationship('Team', backref='leader', foreign_keys='Team.team_leader_id')
+    project = db.relationship('Project')
+    
+    @property
+    def full_name(self):
+        """Gibt den vollen Namen zurück (für Anzeige)"""
+        if self.first_name and self.last_name:
+            return f"{self.first_name} {self.last_name}"
+        elif self.first_name:
+            return self.first_name
+        elif self.last_name:
+            return self.last_name
+        else:
+            return self.username
+    
     def set_password(self, password):
+        from werkzeug.security import generate_password_hash
         self.password_hash = generate_password_hash(password)
-
+    
     def check_password(self, password):
+        from werkzeug.security import check_password_hash
         return check_password_hash(self.password_hash, password)
-
+    
     def __repr__(self):
         return f'<User {self.username}>'
 
-@login_manager.user_loader
-def load_user(id):
-    return User.query.get(int(id))
+class Project(db.Model):
+    __tablename__ = 'projects'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Beziehungen
+    teams = db.relationship('Team', backref='project', lazy='dynamic')
+    users = db.relationship('User', backref='project', lazy='dynamic')
+    coachings = db.relationship('Coaching', backref='project', lazy='dynamic')
+    workshops = db.relationship('Workshop', backref='project', lazy='dynamic')
+    
+    def __repr__(self):
+        return f'<Project {self.name}>'
 
 class Team(db.Model):
     __tablename__ = 'teams'
+    
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), unique=True, nullable=False)
-    team_leader_id = db.Column(db.Integer, db.ForeignKey('users.id', name='fk_team_team_leader_id'), nullable=True)
-    team_leader = db.relationship(
-        'User',
-        foreign_keys=[team_leader_id],
-        backref=db.backref('led_team_obj', uselist=False, lazy='joined')
-    )
+    name = db.Column(db.String(100), nullable=False)
+    team_leader_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False)
-
-    members = db.relationship('TeamMember', backref='team', lazy='dynamic', foreign_keys='TeamMember.team_id')
-    leaders = db.relationship('User', secondary=team_leaders, back_populates='teams_led', lazy='dynamic')
-
+    
+    # Beziehungen
+    members = db.relationship('TeamMember', backref='team', lazy='dynamic')
+    leaders = db.relationship('User', backref='team_led', foreign_keys=[team_leader_id])
+    
     def __repr__(self):
         return f'<Team {self.name}>'
 
 class TeamMember(db.Model):
     __tablename__ = 'team_members'
+    
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    team_id = db.Column(db.Integer, db.ForeignKey('teams.id', name='fk_teammember_team_id'), nullable=False)
-    coachings_received = db.relationship('Coaching', backref='team_member_coached', lazy='dynamic')
-    workshops_attended = db.relationship('Workshop', secondary=workshop_participants,
-                                         backref=db.backref('participants', lazy='dynamic'),
-                                         lazy='dynamic')
-
-    # Felder für die ursprüngliche Zugehörigkeit (wenn im Archiv)
-    original_team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
-    original_project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=True)
-
-    original_team = db.relationship('Team', foreign_keys=[original_team_id])
-    original_project = db.relationship('Project', foreign_keys=[original_project_id])
-
+    team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=False)
+    original_team_id = db.Column(db.Integer, nullable=True)
+    original_project_id = db.Column(db.Integer, nullable=True)
+    
     def __repr__(self):
-        return f'<TeamMember {self.name} (Team ID: {self.team_id})>'
+        return f'<TeamMember {self.name}>'
 
 class Coaching(db.Model):
     __tablename__ = 'coachings'
+    
     id = db.Column(db.Integer, primary_key=True)
-    team_member_id = db.Column(db.Integer, db.ForeignKey('team_members.id', name='fk_coaching_team_member_id'), nullable=False)
-    coach_id = db.Column(db.Integer, db.ForeignKey('users.id', name='fk_coaching_coach_id'), nullable=False)
-    coaching_date = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-    coaching_style = db.Column(db.String(50), nullable=True)
-    tcap_id = db.Column(db.String(50), nullable=True)
-    coaching_subject = db.Column(db.String(50), nullable=True)
-    coach_notes = db.Column(db.Text, nullable=True)
-
-    leitfaden_begruessung = db.Column(db.String(10), default="k.A.", nullable=True)
-    leitfaden_legitimation = db.Column(db.String(10), default="k.A.", nullable=True)
-    leitfaden_pka = db.Column(db.String(10), default="k.A.", nullable=True)
-    leitfaden_kek = db.Column(db.String(10), default="k.A.", nullable=True)
-    leitfaden_angebot = db.Column(db.String(10), default="k.A.", nullable=True)
-    leitfaden_zusammenfassung = db.Column(db.String(10), default="k.A.", nullable=True)
-    leitfaden_kzb = db.Column(db.String(10), default="k.A.", nullable=True)
-
-    performance_mark = db.Column(db.Integer, nullable=True)
-    time_spent = db.Column(db.Integer, nullable=True)
+    team_member_id = db.Column(db.Integer, db.ForeignKey('team_members.id'), nullable=False)
+    coach_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    coaching_date = db.Column(db.DateTime, default=datetime.utcnow)
+    coaching_style = db.Column(db.String(50))
+    tcap_id = db.Column(db.String(100), nullable=True)
+    
+    # Leitfaden-Felder
+    leitfaden_begruessung = db.Column(db.String(10), default='k.A.')
+    leitfaden_legitimation = db.Column(db.String(10), default='k.A.')
+    leitfaden_pka = db.Column(db.String(10), default='k.A.')
+    leitfaden_kek = db.Column(db.String(10), default='k.A.')
+    leitfaden_angebot = db.Column(db.String(10), default='k.A.')
+    leitfaden_zusammenfassung = db.Column(db.String(10), default='k.A.')
+    leitfaden_kzb = db.Column(db.String(10), default='k.A.')
+    
+    performance_mark = db.Column(db.Integer)
+    time_spent = db.Column(db.Integer)
     project_leader_notes = db.Column(db.Text, nullable=True)
-    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False)
-
-    # NEU: Team-ID zum Zeitpunkt des Coachings (für historische Zuordnung)
+    coaching_subject = db.Column(db.String(100))
+    coach_notes = db.Column(db.Text, nullable=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'))
     team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
-
-    # Beziehung zum Team (für Abfragen)
+    
+    # Beziehungen
+    team_member_coached = db.relationship('TeamMember', backref='coachings', foreign_keys=[team_member_id])
+    coach = db.relationship('User', backref='coachings', foreign_keys=[coach_id])
     team = db.relationship('Team', foreign_keys=[team_id])
-
-    @property
-    def leitfaden_fields_list(self):
-        return [
-            ("Begrüßung", self.leitfaden_begruessung),
-            ("Legitimation", self.leitfaden_legitimation),
-            ("PKA", self.leitfaden_pka),
-            ("KEK", self.leitfaden_kek),
-            ("Angebot", self.leitfaden_angebot),
-            ("Zusammenfassung", self.leitfaden_zusammenfassung),
-            ("KZB", self.leitfaden_kzb)
-        ]
-
-    @property
-    def leitfaden_counts(self):
-        ja_count = 0
-        nein_count = 0
-        ka_count = 0
-        for _, value in self.leitfaden_fields_list:
-            if value == "Ja":
-                ja_count += 1
-            elif value == "Nein":
-                nein_count += 1
-            elif value == "k.A.":
-                ka_count += 1
-        return {'ja': ja_count, 'nein': nein_count, 'ka': ka_count}
-
-    @property
-    def leitfaden_erfuellung_display(self):
-        counts = self.leitfaden_counts
-        ja = counts['ja']
-        nein = counts['nein']
-        ka = counts['ka']
-        total_relevant = ja + nein
-        if total_relevant == 0:
-            return f"N/A ({ka} k.A.)" if ka > 0 else "N/A"
-        return f"{ja}/{total_relevant} ({ka} k.A.)"
-
-    @property
-    def leitfaden_erfuellung_prozent(self):
-        counts = self.leitfaden_counts
-        ja = counts['ja']
-        nein = counts['nein']
-        total_relevant = ja + nein
-        if total_relevant == 0:
-            return 0.0
-        return (ja / total_relevant) * 100
-
+    
     @property
     def overall_score(self):
-        if self.performance_mark is None:
-            return 0.0
-        performance_percentage = (float(self.performance_mark) / 10.0) * 100.0
-        return round(performance_percentage, 2)
-
-    def __repr__(self):
-        return f'<Coaching {self.id} for TeamMember {self.team_member_id} on {self.coaching_date}>'
+        if self.performance_mark is not None:
+            return round(self.performance_mark * 10, 1)
+        return 0
+    
+    @property
+    def leitfaden_fields_list(self):
+        fields = [
+            ('Begrüßung', self.leitfaden_begruessung),
+            ('Legitimation', self.leitfaden_legitimation),
+            ('PKA', self.leitfaden_pka),
+            ('KEK', self.leitfaden_kek),
+            ('Angebot', self.leitfaden_angebot),
+            ('Zusammenfassung', self.leitfaden_zusammenfassung),
+            ('KZB', self.leitfaden_kzb),
+        ]
+        return fields
 
 class Workshop(db.Model):
     __tablename__ = 'workshops'
+    
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
-    coach_id = db.Column(db.Integer, db.ForeignKey('users.id', name='fk_workshop_coach_id'), nullable=False)
-    workshop_date = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-    overall_rating = db.Column(db.Integer, nullable=True)
-    time_spent = db.Column(db.Integer, nullable=True)
+    coach_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    workshop_date = db.Column(db.DateTime, default=datetime.utcnow)
+    overall_rating = db.Column(db.Integer)
+    time_spent = db.Column(db.Integer)
     notes = db.Column(db.Text, nullable=True)
-    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False)
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'))
+    
+    # Beziehungen
+    coach = db.relationship('User', backref='workshops')
+    participants = db.relationship('TeamMember', secondary='workshop_participants', backref='workshops')
 
-    def __repr__(self):
-        return f'<Workshop {self.id}: {self.title}>'
-
-print("<<<< ENDE models.py (ARCHIV-HISTORIE) GELADEN >>>>")
+# Assoziationstabelle für Workshop-Teilnehmer
+workshop_participants = db.Table('workshop_participants',
+    db.Column('workshop_id', db.Integer, db.ForeignKey('workshops.id'), primary_key=True),
+    db.Column('team_member_id', db.Integer, db.ForeignKey('team_members.id'), primary_key=True),
+    db.Column('individual_rating', db.Integer),
+    db.Column('original_team_id', db.Integer)
+)
