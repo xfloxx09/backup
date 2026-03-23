@@ -5,6 +5,7 @@ from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from app import db, login_manager
 from datetime import datetime, timezone
+from app.utils import ROLE_ADMIN, ROLE_BETRIEBSLEITER, ROLE_ABTEILUNGSLEITER
 
 team_leaders = db.Table('team_leaders',
     db.Column('team_id', db.Integer, db.ForeignKey('teams.id', ondelete='CASCADE'), primary_key=True),
@@ -15,8 +16,12 @@ workshop_participants = db.Table('workshop_participants',
     db.Column('workshop_id', db.Integer, db.ForeignKey('workshops.id', ondelete='CASCADE'), primary_key=True),
     db.Column('team_member_id', db.Integer, db.ForeignKey('team_members.id', ondelete='CASCADE'), primary_key=True),
     db.Column('individual_rating', db.Integer, nullable=True),
-    # NEU: Ursprüngliches Team des Teilnehmers (für historische Zuordnung)
     db.Column('original_team_id', db.Integer, db.ForeignKey('teams.id'), nullable=True)
+)
+
+user_projects = db.Table('user_projects',
+    db.Column('user_id', db.Integer, db.ForeignKey('users.id'), primary_key=True),
+    db.Column('project_id', db.Integer, db.ForeignKey('projects.id'), primary_key=True)
 )
 
 class Project(db.Model):
@@ -47,6 +52,7 @@ class User(UserMixin, db.Model):
     coachings_done = db.relationship('Coaching', foreign_keys='Coaching.coach_id', backref='coach', lazy='dynamic')
     teams_led = db.relationship('Team', secondary=team_leaders, back_populates='leaders', lazy='dynamic')
     workshops_given = db.relationship('Workshop', backref='coach', lazy='dynamic')
+    projects = db.relationship('Project', secondary=user_projects, backref='users_with_access', lazy='dynamic')
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -56,6 +62,27 @@ class User(UserMixin, db.Model):
 
     def __repr__(self):
         return f'<User {self.username}>'
+
+    @property
+    def has_multiple_projects(self):
+        """Return True if user is allowed to access multiple projects and has >1 projects available."""
+        if self.role not in [ROLE_ADMIN, ROLE_BETRIEBSLEITER, ROLE_ABTEILUNGSLEITER]:
+            return False
+        if self.role == ROLE_ABTEILUNGSLEITER:
+            return self.projects.count() > 1
+        else:
+            from app.models import Project
+            return Project.query.count() > 1
+
+    def get_allowed_project_ids(self):
+        """Return list of project IDs this user can access."""
+        if self.role in [ROLE_ADMIN, ROLE_BETRIEBSLEITER]:
+            from app.models import Project
+            return [p.id for p in Project.query.all()]
+        elif self.role == ROLE_ABTEILUNGSLEITER:
+            return [p.id for p in self.projects]
+        else:
+            return [self.project_id] if self.project_id else []
 
 @login_manager.user_loader
 def load_user(id):
@@ -89,7 +116,6 @@ class TeamMember(db.Model):
                                          backref=db.backref('participants', lazy='dynamic'),
                                          lazy='dynamic')
 
-    # Felder für die ursprüngliche Zugehörigkeit (wenn im Archiv)
     original_team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
     original_project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=True)
 
@@ -122,11 +148,8 @@ class Coaching(db.Model):
     time_spent = db.Column(db.Integer, nullable=True)
     project_leader_notes = db.Column(db.Text, nullable=True)
     project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False)
-
-    # NEU: Team-ID zum Zeitpunkt des Coachings (für historische Zuordnung)
     team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
 
-    # Beziehung zum Team (für Abfragen)
     team = db.relationship('Team', foreign_keys=[team_id])
 
     @property
