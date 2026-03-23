@@ -712,4 +712,114 @@ def pl_qm_dashboard():
     all_teams_data = []
     teams_query = Team.query.filter(Team.name != ARCHIV_TEAM_NAME)
     if project_filter:
-        teams_query =
+        teams_query = teams_query.filter(Team.project_id == project_filter)
+    for team_obj_stat_loop in teams_query.all():
+        stats = db.session.query(
+            func.coalesce(func.avg(Coaching.performance_mark * 10.0), 0).label('avg_perf'),
+            func.coalesce(func.sum(Coaching.time_spent), 0).label('total_time'),
+            func.coalesce(func.count(Coaching.id), 0).label('num_coachings')
+        ).join(TeamMember, Coaching.team_member_id == TeamMember.id)\
+         .filter(TeamMember.team_id == team_obj_stat_loop.id).first()
+        all_teams_data.append({
+            'id': team_obj_stat_loop.id, 'name': team_obj_stat_loop.name,
+            'num_coachings': stats.num_coachings if stats else 0,
+            'avg_score': round(stats.avg_perf, 2) if stats else 0,
+            'total_time': stats.total_time if stats else 0
+        })
+    sorted_data = sorted(all_teams_data, key=lambda x: (x.get('avg_score', 0), x.get('num_coachings', 0)), reverse=True)
+    top_3 = sorted_data[:3]
+    teams_c = [t for t in all_teams_data if t.get('num_coachings', 0) > 0]
+    flop_3 = sorted(teams_c, key=lambda x: (x.get('avg_score', 0), -x.get('num_coachings', 0)))[:3] if teams_c else []
+
+    all_teams_for_filter_dropdown = teams_query.order_by(Team.name).all()
+    selected_team_object_for_cards = None
+    members_data_for_cards = []
+
+    if selected_team_id_filter_str and selected_team_id_filter_str.isdigit():
+        selected_team_id = int(selected_team_id_filter_str)
+        selected_team_object_for_cards = Team.query.get(selected_team_id)
+        if selected_team_object_for_cards:
+            if current_user.role not in [ROLE_ADMIN, ROLE_BETRIEBSLEITER] and selected_team_object_for_cards.project_id != project_filter:
+                abort(403)
+            for member in selected_team_object_for_cards.members.all():
+                member_coachings_list = Coaching.query.filter_by(team_member_id=member.id).all()
+                avg_score_val = sum(c.overall_score for c in member_coachings_list) / len(member_coachings_list) if member_coachings_list else 0.0
+                leitfaden_adherences_percentages = [
+                    c.leitfaden_erfuellung_prozent for c in member_coachings_list if c.leitfaden_erfuellung_prozent is not None
+                ]
+                avg_leitfaden_adherence_val = sum(leitfaden_adherences_percentages) / len(leitfaden_adherences_percentages) if leitfaden_adherences_percentages else 0.0
+                total_coaching_time_minutes_val = sum(c.time_spent for c in member_coachings_list if c.time_spent is not None)
+                hours = total_coaching_time_minutes_val // 60
+                minutes = total_coaching_time_minutes_val % 60
+                formatted_time_str = f"{hours} Std. {minutes} Min."
+                members_data_for_cards.append({
+                    'id': member.id, 'name': member.name,
+                    'avg_score': round(avg_score_val, 2),
+                    'avg_leitfaden_adherence': round(avg_leitfaden_adherence_val, 1),
+                    'total_coachings': len(member_coachings_list),
+                    'raw_total_coaching_time': total_coaching_time_minutes_val,
+                    'formatted_total_coaching_time': formatted_time_str
+                })
+
+    return render_template('main/projektleiter_dashboard.html',
+                           title=title,
+                           coachings_paginated=coachings_paginated,
+                           note_form=note_form,
+                           top_3_teams=top_3,
+                           flop_3_teams=flop_3,
+                           all_teams_for_filter=all_teams_for_filter_dropdown,
+                           selected_team_id_filter=selected_team_id_filter_str,
+                           selected_team_object_for_cards=selected_team_object_for_cards,
+                           members_data_for_cards=members_data_for_cards,
+                           config=current_app.config)
+
+@bp.route('/api/member_coaching_trend', methods=['GET'])
+@login_required
+def get_member_coaching_trend():
+    team_member_id_str = request.args.get('team_member_id')
+    count_str = request.args.get('count', '10')
+    if not team_member_id_str:
+        return jsonify({"error": "Team Member ID (team_member_id) is required"}), 400
+    try:
+        team_member_id = int(team_member_id_str)
+    except ValueError:
+        return jsonify({"error": "Invalid Team Member ID format"}), 400
+    member = TeamMember.query.get_or_404(team_member_id)
+    if current_user.role not in [ROLE_ADMIN, ROLE_BETRIEBSLEITER] and member.team.project_id != current_user.project_id:
+        return jsonify({"error": "Access denied"}), 403
+
+    query = Coaching.query.filter_by(team_member_id=team_member_id).order_by(Coaching.coaching_date.desc())
+    if count_str.lower() != 'all':
+        try:
+            count = int(count_str)
+            if count <= 0:
+                return jsonify({"error": "Count must be a positive integer or 'all'"}), 400
+            query = query.limit(count)
+        except ValueError:
+            return jsonify({"error": "Invalid count format"}), 400
+    recent_coachings = query.all()
+    recent_coachings.reverse()
+    if not recent_coachings:
+        return jsonify({"labels": [], "scores": [], "dates": []})
+    labels = []
+    scores = []
+    dates = []
+    for i, coaching in enumerate(recent_coachings):
+        labels.append(f"Coaching {i+1}")
+        scores.append(coaching.overall_score if coaching.overall_score is not None else 0)
+        dates.append(coaching.coaching_date.strftime('%d.%m.%y'))
+    return jsonify({"labels": labels, "scores": scores, "dates": dates})
+
+@bp.route('/set-project/<int:project_id>')
+@login_required
+def set_project(project_id):
+    if current_user.role not in [ROLE_ADMIN, ROLE_BETRIEBSLEITER, ROLE_ABTEILUNGSLEITER]:
+        abort(403)
+    project = Project.query.get_or_404(project_id)
+    # For Abteilungsleiter, check if they have access to this project
+    if current_user.role == ROLE_ABTEILUNGSLEITER:
+        if project not in current_user.projects:
+            abort(403)
+    session['active_project'] = project_id
+    flash(f'Aktives Projekt gewechselt zu {project.name}', 'success')
+    return redirect(request.referrer or url_for('main.index'))
