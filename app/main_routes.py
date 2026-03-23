@@ -345,7 +345,6 @@ def add_coaching():
     if current_user.role in [ROLE_ADMIN, ROLE_BETRIEBSLEITER, ROLE_ABTEILUNGSLEITER]:
         selected_project_id = request.args.get('project', type=int) or session.get('active_project') or current_user.project_id
         if current_user.role == ROLE_ABTEILUNGSLEITER and selected_project_id not in current_user.get_allowed_project_ids():
-            # Fallback to first allowed project if selected is not allowed
             allowed = current_user.get_allowed_project_ids()
             selected_project_id = allowed[0] if allowed else None
     else:
@@ -708,7 +707,7 @@ def pl_qm_dashboard():
                                 page=request.args.get('page', 1, type=int),
                                 team_id_filter=selected_team_id_filter_str))
 
-    # Team-Statistiken
+    # Team-Statistiken (for Top/Flop)
     all_teams_data = []
     teams_query = Team.query.filter(Team.name != ARCHIV_TEAM_NAME)
     if project_filter:
@@ -761,6 +760,54 @@ def pl_qm_dashboard():
                     'formatted_total_coaching_time': formatted_time_str
                 })
 
+    # --- NEW: Overall stats for the project ---
+    overall_stats = db.session.query(
+        func.count(Coaching.id).label('total_coachings'),
+        func.coalesce(func.sum(Coaching.time_spent), 0).label('total_time'),
+        func.coalesce(func.avg(Coaching.performance_mark * 10.0), 0).label('avg_score')
+    ).join(TeamMember, Coaching.team_member_id == TeamMember.id)\
+     .join(Team, TeamMember.team_id == Team.id)\
+     .filter(Team.name != ARCHIV_TEAM_NAME)
+    if project_filter:
+        overall_stats = overall_stats.filter(Coaching.project_id == project_filter)
+    overall_stats = overall_stats.first()
+
+    total_coachings_overall = overall_stats.total_coachings if overall_stats else 0
+    total_time_overall = overall_stats.total_time if overall_stats else 0
+    avg_score_overall = round(overall_stats.avg_score, 1) if overall_stats else 0
+
+    # --- NEW: Team stats for table ---
+    teams_stats = []
+    teams_query_table = Team.query.filter(Team.name != ARCHIV_TEAM_NAME)
+    if project_filter:
+        teams_query_table = teams_query_table.filter(Team.project_id == project_filter)
+    for team in teams_query_table.all():
+        stats = db.session.query(
+            func.count(Coaching.id).label('num_coachings'),
+            func.coalesce(func.avg(Coaching.performance_mark * 10.0), 0).label('avg_score'),
+            func.coalesce(func.sum(Coaching.time_spent), 0).label('total_time')
+        ).join(TeamMember, Coaching.team_member_id == TeamMember.id)\
+         .filter(TeamMember.team_id == team.id).first()
+        if stats.num_coachings > 0:
+            teams_stats.append({
+                'id': team.id,
+                'name': team.name,
+                'num_coachings': stats.num_coachings,
+                'avg_score': round(stats.avg_score, 1),
+                'total_time': stats.total_time
+            })
+    # Sort by avg_score descending, then num_coachings
+    teams_stats.sort(key=lambda x: (-x['avg_score'], -x['num_coachings']))
+
+    # --- NEW: Chart data for all teams (no team filter) ---
+    chart_data = get_performance_data_for_charts(period_filter_str='all', selected_team_id_str=None, project_id=project_filter)
+    chart_labels = chart_data['labels']
+    chart_avg_performance_values = chart_data['avg_performance_values']
+
+    subject_data = get_coaching_subject_distribution(period_filter_str='all', selected_team_id_str=None, project_id=project_filter)
+    subject_labels = subject_data['labels']
+    subject_values = subject_data['values']
+
     return render_template('main/projektleiter_dashboard.html',
                            title=title,
                            coachings_paginated=coachings_paginated,
@@ -771,6 +818,14 @@ def pl_qm_dashboard():
                            selected_team_id_filter=selected_team_id_filter_str,
                            selected_team_object_for_cards=selected_team_object_for_cards,
                            members_data_for_cards=members_data_for_cards,
+                           total_coachings_overall=total_coachings_overall,
+                           total_time_overall=total_time_overall,
+                           avg_score_overall=avg_score_overall,
+                           teams_stats=teams_stats,
+                           chart_labels=chart_labels,
+                           chart_avg_performance_values=chart_avg_performance_values,
+                           subject_labels=subject_labels,
+                           subject_values=subject_values,
                            config=current_app.config)
 
 @bp.route('/api/member_coaching_trend', methods=['GET'])
@@ -816,7 +871,6 @@ def set_project(project_id):
     if current_user.role not in [ROLE_ADMIN, ROLE_BETRIEBSLEITER, ROLE_ABTEILUNGSLEITER]:
         abort(403)
     project = Project.query.get_or_404(project_id)
-    # For Abteilungsleiter, check if they have access to this project
     if current_user.role == ROLE_ABTEILUNGSLEITER:
         if project not in current_user.projects:
             abort(403)
