@@ -5,7 +5,7 @@ from sqlalchemy import desc, or_, false
 from app import db
 from app.models import User, Team, TeamMember, Coaching, Workshop, workshop_participants, Project
 from app.forms import RegistrationForm, TeamForm, TeamMemberForm, CoachingForm, WorkshopForm, ProjectForm
-from app.utils import role_required, ROLE_ADMIN, ROLE_BETRIEBSLEITER, ROLE_TEAMLEITER, get_or_create_archiv_team, ARCHIV_TEAM_NAME
+from app.utils import role_required, ROLE_ADMIN, ROLE_BETRIEBSLEITER, ROLE_TEAMLEITER, ROLE_ABTEILUNGSLEITER, get_or_create_archiv_team, ARCHIV_TEAM_NAME
 from app.main_routes import calculate_date_range, get_month_name_german
 from datetime import datetime, timezone
 
@@ -170,7 +170,6 @@ def edit_project(project_id):
 @role_required([ROLE_ADMIN, ROLE_BETRIEBSLEITER])
 def delete_project(project_id):
     project = Project.query.get_or_404(project_id)
-    # Prüfen, ob noch abhängige Daten existieren
     if project.users.count() > 0 or project.teams.count() > 0 or project.workshops.count() > 0 or project.coachings.count() > 0:
         flash('Projekt kann nicht gelöscht werden, da noch Benutzer, Teams, Workshops oder Coachings zugeordnet sind.', 'danger')
         return redirect(url_for('admin.manage_projects'))
@@ -187,21 +186,38 @@ def create_user():
     form = RegistrationForm()
     if form.validate_on_submit():
         try:
-            user = User(
-                username=form.username.data,
-                email=form.email.data if form.email.data else None,
-                role=form.role.data,
-                project_id=form.project_id.data
-            )
+            # Abteilungsleiter: project_id should be None, use projects relationship
+            if form.role.data == ROLE_ABTEILUNGSLEITER:
+                user = User(
+                    username=form.username.data,
+                    email=form.email.data if form.email.data else None,
+                    role=form.role.data,
+                    project_id=None
+                )
+            else:
+                user = User(
+                    username=form.username.data,
+                    email=form.email.data if form.email.data else None,
+                    role=form.role.data,
+                    project_id=form.project_id.data
+                )
             user.set_password(form.password.data)
             db.session.add(user)
             db.session.flush()
 
+            # Teamleiter: assign teams
             if user.role == ROLE_TEAMLEITER and form.team_ids.data:
                 selected_teams = Team.query.filter(Team.id.in_(form.team_ids.data)).all()
                 user.teams_led = selected_teams
             else:
                 user.teams_led = []
+
+            # Abteilungsleiter: assign projects
+            if user.role == ROLE_ABTEILUNGSLEITER and form.project_ids.data:
+                selected_projects = Project.query.filter(Project.id.in_(form.project_ids.data)).all()
+                user.projects = selected_projects
+            else:
+                user.projects = []
 
             db.session.commit()
             flash('Benutzer erfolgreich erstellt!', 'success')
@@ -232,11 +248,21 @@ def edit_user(user_id):
             user_to_edit.username = form.username.data
             user_to_edit.email = form.email.data if form.email.data else None
             user_to_edit.role = form.role.data
-            user_to_edit.project_id = form.project_id.data
+
+            # Handle project assignment based on role
+            if user_to_edit.role == ROLE_ABTEILUNGSLEITER:
+                user_to_edit.project_id = None
+                # Assign selected projects
+                selected_projects = Project.query.filter(Project.id.in_(form.project_ids.data)).all()
+                user_to_edit.projects = selected_projects
+            else:
+                user_to_edit.project_id = form.project_id.data
+                user_to_edit.projects = []  # clear any previous project assignments
 
             if form.password.data:
                 user_to_edit.set_password(form.password.data)
 
+            # Teamleiter: assign teams
             if user_to_edit.role == ROLE_TEAMLEITER and form.team_ids.data:
                 selected_teams = Team.query.filter(Team.id.in_(form.team_ids.data)).all()
                 user_to_edit.teams_led = selected_teams
@@ -255,7 +281,10 @@ def edit_user(user_id):
         form.email.data = user_to_edit.email
         form.role.data = user_to_edit.role
         form.team_ids.data = [team.id for team in user_to_edit.teams_led.all()]
-        form.project_id.data = user_to_edit.project_id
+        if user_to_edit.role != ROLE_ABTEILUNGSLEITER:
+            form.project_id.data = user_to_edit.project_id
+        else:
+            form.project_ids.data = [p.id for p in user_to_edit.projects]
     else:
         for field, errors in form.errors.items():
             for error in errors:
@@ -290,7 +319,6 @@ def delete_user(user_id):
 @role_required([ROLE_ADMIN, ROLE_BETRIEBSLEITER])
 def create_team():
     form = TeamForm()
-    # Alle Teamleiter für die Filterung im Template
     all_team_leaders = User.query.filter(User.role == ROLE_TEAMLEITER).order_by(User.username).all()
     if form.validate_on_submit():
         if form.name.data.strip().upper() == ARCHIV_TEAM_NAME:
@@ -447,7 +475,6 @@ def move_to_archiv(member_id):
         flash(f'{member_to_move.name} ist bereits im Archiv.', 'info')
         return redirect(url_for('admin.panel'))
     try:
-        # Ursprüngliche Zugehörigkeit speichern
         member_to_move.original_team_id = member_to_move.team_id
         member_to_move.original_project_id = member_to_move.team.project_id
         member_to_move.team_id = archiv_team.id
@@ -459,7 +486,6 @@ def move_to_archiv(member_id):
         flash('Fehler beim Verschieben des Mitglieds ins Archiv.', 'danger')
     return redirect(url_for('admin.edit_team', team_id=original_team_id))
 
-# --- NEU: Endgültiges Löschen eines Teammitglieds ---
 @bp.route('/teammembers/delete-permanent/<int:member_id>', methods=['POST'])
 @login_required
 @role_required([ROLE_ADMIN, ROLE_BETRIEBSLEITER])
@@ -468,15 +494,9 @@ def delete_team_member_permanently(member_id):
     member_name = member.name
     
     try:
-        # 1. Lösche alle Coachings dieses Mitglieds
         Coaching.query.filter_by(team_member_id=member_id).delete()
-        
-        # 2. Lösche alle Workshop-Teilnahmen dieses Mitglieds
         db.session.execute(workshop_participants.delete().where(workshop_participants.c.team_member_id == member_id))
-        
-        # 3. Lösche das Mitglied selbst
         db.session.delete(member)
-        
         db.session.commit()
         flash(f'Mitglied "{member_name}" wurde endgültig gelöscht.', 'success')
     except Exception as e:
