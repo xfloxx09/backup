@@ -126,6 +126,22 @@
                 </select>
             </div>
         </div>
+
+        {# Project filter – only show if user has access to multiple projects #}
+        {% if all_projects and all_projects|length > 0 %}
+        <div class="col-md-auto">
+            <div class="form-group mr-2">
+                <label for="project_filter" class="mr-2">Projekt:</label>
+                <select name="project" id="project_filter" class="form-control custom-select form-control-sm">
+                    <option value="" {% if not current_project_filter %}selected{% endif %}>-- Alle Projekte --</option>
+                    {% for p in all_projects %}
+                        <option value="{{ p.id }}" {% if current_project_filter == p.id %}selected{% endif %}>{{ p.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="col-md-auto">
             <div class="form-group mr-2">
                 <label for="team_filter" class="mr-2">Team:</label>
