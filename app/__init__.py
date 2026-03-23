@@ -1,9 +1,9 @@
 # app/__init__.py
 print("<<<< START __init__.py wird GELADEN >>>>")
 
-from flask import Flask, current_user
+from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager
+from flask_login import LoginManager, current_user
 from flask_migrate import Migrate
 from config import Config
 import os
