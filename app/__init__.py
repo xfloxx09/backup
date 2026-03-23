@@ -50,7 +50,7 @@ def create_app(config_class=Config):
     @app.context_processor
     def inject_user_allowed_projects():
         from app.models import Project
-        from app.utils import ROLE_ADMIN, ROLE_BETRIEBSLEITER, ROLE_ABTEILUNGSLEITER
+        from app.roles import ROLE_ADMIN, ROLE_BETRIEBSLEITER, ROLE_ABTEILUNGSLEITER
         if current_user.is_authenticated:
             if current_user.role in [ROLE_ADMIN, ROLE_BETRIEBSLEITER]:
                 projects = Project.query.order_by(Project.name).all()
