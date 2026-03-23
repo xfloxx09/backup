@@ -3,7 +3,7 @@ from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, BooleanField, SubmitField, SelectField, SelectMultipleField, IntegerField, TextAreaField
 from wtforms.validators import DataRequired, EqualTo, ValidationError, Length, NumberRange
 from app.models import User, Team, TeamMember, Project
-from app.utils import ARCHIV_TEAM_NAME, ROLE_TEAMLEITER, ROLE_ADMIN, ROLE_BETRIEBSLEITER
+from app.utils import ARCHIV_TEAM_NAME, ROLE_TEAMLEITER, ROLE_ADMIN, ROLE_BETRIEBSLEITER, ROLE_ABTEILUNGSLEITER
 
 class LoginForm(FlaskForm):
     username = StringField('Benutzername', validators=[DataRequired("Benutzername ist erforderlich.")])
@@ -31,6 +31,7 @@ class RegistrationForm(FlaskForm):
     ], validators=[DataRequired("Rolle ist erforderlich.")])
     team_ids = SelectMultipleField('Zugeordnete Teams (nur für Teamleiter)', coerce=int, choices=[])
     project_id = SelectField('Projekt', coerce=int, choices=[])
+    project_ids = SelectMultipleField('Zugeordnete Projekte (nur für Abteilungsleiter)', coerce=int, choices=[])
     submit = SubmitField('Benutzer registrieren/aktualisieren')
 
     def __init__(self, original_username=None, *args, **kwargs):
@@ -38,7 +39,9 @@ class RegistrationForm(FlaskForm):
         self.original_username = original_username
         active_teams = Team.query.filter(Team.name != ARCHIV_TEAM_NAME).order_by(Team.name).all()
         self.team_ids.choices = [(t.id, t.name) for t in active_teams]
-        self.project_id.choices = [(p.id, p.name) for p in Project.query.order_by(Project.name).all()]
+        all_projects = Project.query.order_by(Project.name).all()
+        self.project_id.choices = [(p.id, p.name) for p in all_projects]
+        self.project_ids.choices = [(p.id, p.name) for p in all_projects]
 
     def validate_username(self, username_field):
         query = User.query.filter(User.username == username_field.data)
@@ -47,6 +50,18 @@ class RegistrationForm(FlaskForm):
         user = query.first()
         if user:
             raise ValidationError('Dieser Benutzername ist bereits vergeben.')
+
+    def validate_project_id(self, field):
+        # For roles other than Abteilungsleiter, we need project_id
+        if self.role.data != 'Abteilungsleiter' and not field.data:
+            raise ValidationError('Projekt ist erforderlich.')
+        # For Abteilungsleiter, project_id is optional, but we validate project_ids
+        if self.role.data == 'Abteilungsleiter' and not self.project_ids.data:
+            raise ValidationError('Mindestens ein Projekt muss ausgewählt werden.')
+
+    def validate_project_ids(self, field):
+        if self.role.data == 'Abteilungsleiter' and not field.data:
+            raise ValidationError('Mindestens ein Projekt muss ausgewählt werden.')
 
 class TeamForm(FlaskForm):
     name = StringField('Team Name', validators=[DataRequired(), Length(min=3, max=100)])
@@ -119,21 +134,16 @@ class CoachingForm(FlaskForm):
 
     def update_team_member_choices(self, exclude_archiv=False, project_id=None):
         generated_choices = []
-        # EXPLIZITER JOIN wegen Mehrdeutigkeit
         query = TeamMember.query.join(Team, TeamMember.team_id == Team.id)
 
-        # 1. Filter nach Projekt (falls vorhanden)
         if project_id:
             query = query.filter(Team.project_id == project_id)
 
-        # 2. Für Teamleiter: zusätzlich auf ihre eigenen Teams einschränken
         if self.current_user_role == ROLE_TEAMLEITER and self.current_user_team_ids:
             query = query.filter(TeamMember.team_id.in_(self.current_user_team_ids))
         elif self.current_user_role not in [ROLE_ADMIN, ROLE_BETRIEBSLEITER]:
-            # Normale User (keine Teamleiter) – sollte nicht vorkommen
             pass
 
-        # 3. Archiv ausschließen (wenn gewünscht)
         if exclude_archiv:
             query = query.filter(Team.name != ARCHIV_TEAM_NAME)
 
@@ -163,18 +173,14 @@ class WorkshopForm(FlaskForm):
 
     def update_participant_choices(self, project_id=None):
         generated_choices = []
-        # EXPLIZITER JOIN wegen Mehrdeutigkeit
         query = TeamMember.query.join(Team, TeamMember.team_id == Team.id)
 
-        # 1. Filter nach Projekt (falls vorhanden)
         if project_id:
             query = query.filter(Team.project_id == project_id)
 
-        # 2. Für Teamleiter: zusätzlich auf ihre eigenen Teams einschränken
         if self.current_user_role == ROLE_TEAMLEITER and self.current_user_team_ids:
             query = query.filter(TeamMember.team_id.in_(self.current_user_team_ids))
 
-        # 3. Archiv immer ausschließen
         query = query.filter(Team.name != ARCHIV_TEAM_NAME)
 
         members = query.order_by(TeamMember.name).all()
