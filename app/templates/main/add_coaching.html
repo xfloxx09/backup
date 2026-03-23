@@ -160,9 +160,27 @@
             <div class="form-row">
                 <div class="form-group col-md-4">
                     {{ form.team_member_id.label(class="form-control-label") }}
-                    {{ form.team_member_id(class="form-control custom-select " + ("is-invalid" if form.team_member_id.errors else "")) }}
+                    <select name="team_member_id" id="team_member_id" class="form-control custom-select" required>
+                        <option value="">-- Bitte wählen --</option>
+                        {% set grouped_choices = {} %}
+                        {% for value, label in form.team_member_id.choices %}
+                            {% set team_name = label.split('(')[-1].rstrip(')') if '(' in label else '' %}
+                            {% set member_name = label.split(' (')[0] %}
+                            {% if team_name not in grouped_choices %}
+                                {% set _ = grouped_choices.update({team_name: []}) %}
+                            {% endif %}
+                            {% set _ = grouped_choices[team_name].append((value, member_name)) %}
+                        {% endfor %}
+                        {% for team_name, members in grouped_choices.items() %}
+                            <optgroup label="{{ team_name }}">
+                                {% for value, member_name in members %}
+                                    <option value="{{ value }}" {% if form.team_member_id.data == value %}selected{% endif %}>{{ member_name }}</option>
+                                {% endfor %}
+                            </optgroup>
+                        {% endfor %}
+                    </select>
                     {% if form.team_member_id.errors %}
-                        <div class="invalid-feedback">{% for error in form.team_member_id.errors %}{{ error }}{% endfor %}</div>
+                        <div class="invalid-feedback d-block">{% for error in form.team_member_id.errors %}{{ error }}{% endfor %}</div>
                     {% endif %}
                 </div>
                 <div class="form-group col-md-4">
@@ -338,7 +356,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // --- 4. Optional: Zeitaufwand auf ganze Minuten beschränken (falls nicht bereits durch NumberRange) ---
+    // --- 4. Optional: Zeitaufwand auf ganze Minuten beschränken ---
     const timeInput = document.getElementById('time_spent_input');
     if (timeInput) {
         timeInput.addEventListener('blur', function() {
