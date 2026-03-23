@@ -186,13 +186,17 @@ def create_user():
     form = RegistrationForm()
     if form.validate_on_submit():
         try:
-            # Abteilungsleiter: project_id should be None, use projects relationship
+            # Abteilungsleiter: set project_id to first selected project, otherwise None (but column is NOT NULL, so fallback to a dummy? We'll use first selected project)
             if form.role.data == ROLE_ABTEILUNGSLEITER:
+                primary_project_id = form.project_ids.data[0] if form.project_ids.data else None
+                if primary_project_id is None:
+                    flash('Mindestens ein Projekt muss ausgewählt werden.', 'danger')
+                    return render_template('admin/create_user.html', title='Benutzer erstellen', form=form, config=current_app.config)
                 user = User(
                     username=form.username.data,
                     email=form.email.data if form.email.data else None,
                     role=form.role.data,
-                    project_id=None
+                    project_id=primary_project_id
                 )
             else:
                 user = User(
@@ -212,7 +216,7 @@ def create_user():
             else:
                 user.teams_led = []
 
-            # Abteilungsleiter: assign projects
+            # Abteilungsleiter: assign all selected projects (including the primary)
             if user.role == ROLE_ABTEILUNGSLEITER and form.project_ids.data:
                 selected_projects = Project.query.filter(Project.id.in_(form.project_ids.data)).all()
                 user.projects = selected_projects
@@ -251,8 +255,13 @@ def edit_user(user_id):
 
             # Handle project assignment based on role
             if user_to_edit.role == ROLE_ABTEILUNGSLEITER:
-                user_to_edit.project_id = None
-                # Assign selected projects
+                # Set project_id to the first selected project (required for NOT NULL)
+                primary_project_id = form.project_ids.data[0] if form.project_ids.data else None
+                if primary_project_id is None:
+                    flash('Mindestens ein Projekt muss ausgewählt werden.', 'danger')
+                    return render_template('admin/edit_user.html', title='Benutzer bearbeiten', form=form, user=user_to_edit, config=current_app.config)
+                user_to_edit.project_id = primary_project_id
+                # Assign all selected projects
                 selected_projects = Project.query.filter(Project.id.in_(form.project_ids.data)).all()
                 user_to_edit.projects = selected_projects
             else:
