@@ -42,7 +42,24 @@
             </ul>
             <ul class="navbar-nav">
                 {% if current_user.is_authenticated %}
-                    <!-- "Jetzt coachen" Button (rechts, vor dem Profil) -->
+                    <!-- Project Switcher (only if user has access to multiple projects) -->
+                    {% if user_allowed_projects and user_allowed_projects|length > 1 %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="projectDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            <i class="fas fa-project-diagram"></i> Projekt
+                        </a>
+                        <div class="dropdown-menu" aria-labelledby="projectDropdown">
+                            {% for p in user_allowed_projects %}
+                                <a class="dropdown-item" href="{{ url_for('main.set_project', project_id=p.id) }}">
+                                    {{ p.name }}
+                                    {% if session.get('active_project') == p.id %} <i class="fas fa-check"></i>{% endif %}
+                                </a>
+                            {% endfor %}
+                        </div>
+                    </li>
+                    {% endif %}
+
+                    <!-- "Jetzt coachen" Button -->
                     {% if current_user.role in ['Teamleiter', 'Qualitätsmanager', 'SalesCoach', 'Trainer', 'Admin', 'Betriebsleiter'] %}
                         <li class="nav-item dropdown mr-2">
                             <a class="nav-link dropdown-toggle telekom-button" href="#" id="coachDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="background-color: #e20074; border-radius: 20px; padding: 5px 15px; color: white;">
