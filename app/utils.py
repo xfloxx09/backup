@@ -3,19 +3,7 @@
 from functools import wraps
 from flask_login import current_user
 from flask import abort
-from .models import db, Team
-
-ARCHIV_TEAM_NAME = "ARCHIV"
-
-# Konstanten für Rollen
-ROLE_ADMIN = 'Admin'
-ROLE_BETRIEBSLEITER = 'Betriebsleiter'
-ROLE_PROJEKTLEITER = 'Projektleiter'
-ROLE_QM = 'Qualitätsmanager'
-ROLE_SALESCOACH = 'SalesCoach'
-ROLE_TRAINER = 'Trainer'
-ROLE_TEAMLEITER = 'Teamleiter'
-ROLE_ABTEILUNGSLEITER = 'Abteilungsleiter'
+from .roles import *  # Import all constants
 
 def role_required(role_name_or_list):
     def decorator(f):
@@ -37,6 +25,8 @@ def role_required(role_name_or_list):
     return decorator
 
 def get_or_create_archiv_team():
+    # Import inside function to avoid circular import
+    from .models import db, Team
     archiv_team = Team.query.filter_by(name=ARCHIV_TEAM_NAME).first()
     if not archiv_team:
         print(f"INFO: Erstelle das spezielle Team: {ARCHIV_TEAM_NAME}")
@@ -45,7 +35,6 @@ def get_or_create_archiv_team():
         db.session.commit()
     return archiv_team
 
-# Hilfsfunktion für Projektzugriff
 def user_can_access_project(user, project_id):
     if user.role in [ROLE_ADMIN, ROLE_BETRIEBSLEITER]:
         return True
